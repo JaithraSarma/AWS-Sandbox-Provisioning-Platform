@@ -1,0 +1,12 @@
+aws_region                = "us-east-1"
+project_name              = "aws-env-provisioner"
+state_bucket_name         = "replace-with-state-bucket"
+state_key_prefix          = "envs"
+lock_table_name           = "aws-env-provisioner-tf-locks"
+repository_url            = "https://github.com/OWNER/aws-env-provisioner.git"
+source_version            = "main"
+sns_email                 = "you@example.com"
+notification_lead_minutes = 30
+schedule_expression       = "rate(2 hours)"
+default_allowed_ssh_cidr  = "0.0.0.0/0"
+
