@@ -70,6 +70,7 @@
         "dynamodb:DescribeContinuousBackups",
         "dynamodb:DescribeTable",
         "dynamodb:DescribeTimeToLive",
+        "dynamodb:DeleteItem",
         "dynamodb:GetItem",
         "dynamodb:ListTagsOfResource",
         "dynamodb:PutItem",
@@ -88,6 +89,8 @@
         "iam:DeleteRolePolicy",
         "iam:GetRole",
         "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
         "iam:ListRolePolicies",
         "iam:PassRole",
         "iam:PutRolePolicy",
@@ -124,7 +127,6 @@
       "Action": [
         "logs:CreateLogGroup",
         "logs:DeleteLogGroup",
-        "logs:DescribeLogGroups",
         "logs:ListTagsForResource",
         "logs:PutRetentionPolicy",
         "logs:TagResource",
@@ -136,12 +138,20 @@
       ]
     },
     {
+      "Sid": "ReadLogGroupsForTerraform",
+      "Effect": "Allow",
+      "Action": "logs:DescribeLogGroups",
+      "Resource": "*"
+    },
+    {
       "Sid": "ManageProjectCodeBuild",
       "Effect": "Allow",
       "Action": [
+        "codebuild:BatchGetBuilds",
         "codebuild:BatchGetProjects",
         "codebuild:CreateProject",
         "codebuild:DeleteProject",
+        "codebuild:ListBuildsForProject",
         "codebuild:ListProjects",
         "codebuild:StartBuild",
         "codebuild:UpdateProject"
@@ -156,7 +166,9 @@
         "apigateway:GET",
         "apigateway:PATCH",
         "apigateway:POST",
-        "apigateway:PUT"
+        "apigateway:PUT",
+        "apigateway:TagResource",
+        "apigateway:UntagResource"
       ],
       "Resource": "arn:aws:apigateway:ap-south-1::/*"
     },
@@ -182,7 +194,9 @@
       "Action": [
         "sns:CreateTopic",
         "sns:DeleteTopic",
+        "sns:GetSubscriptionAttributes",
         "sns:GetTopicAttributes",
+        "sns:ListSubscriptionsByTopic",
         "sns:ListTagsForResource",
         "sns:SetTopicAttributes",
         "sns:Subscribe",
@@ -191,6 +205,15 @@
         "sns:UntagResource"
       ],
       "Resource": "arn:aws:sns:ap-south-1:578257747901:aws-env-provisioner-*"
+    },
+    {
+      "Sid": "ReadProjectSnsSubscriptionsForTerraform",
+      "Effect": "Allow",
+      "Action": [
+        "sns:GetSubscriptionAttributes",
+        "sns:ListSubscriptionsByTopic"
+      ],
+      "Resource": "*"
     },
     {
       "Sid": "ManageProjectSsmParameters",
