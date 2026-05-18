@@ -144,6 +144,19 @@
       "Resource": "*"
     },
     {
+      "Sid": "ReadProjectLogEventsForProof",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogStreams",
+        "logs:FilterLogEvents",
+        "logs:GetLogEvents"
+      ],
+      "Resource": [
+        "arn:aws:logs:ap-south-1:578257747901:log-group:/aws/lambda/aws-env-provisioner-*:*",
+        "arn:aws:logs:ap-south-1:578257747901:log-group:/aws/codebuild/aws-env-provisioner-*:*"
+      ]
+    },
+    {
       "Sid": "ManageProjectCodeBuild",
       "Effect": "Allow",
       "Action": [
