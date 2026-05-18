@@ -1,0 +1,62 @@
+version: 0.2
+
+env:
+  shell: bash
+
+phases:
+  install:
+    commands:
+      - set -euo pipefail
+      - TERRAFORM_VERSION="${TERRAFORM_VERSION:-1.8.5}"
+      - curl -sSLo /tmp/terraform.zip "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+      - unzip -q /tmp/terraform.zip -d /tmp/terraform-bin
+      - install -m 0755 /tmp/terraform-bin/terraform /usr/local/bin/terraform
+      - terraform version
+  pre_build:
+    commands:
+      - set -euo pipefail
+      - test -n "${ACTION:?ACTION is required}"
+      - test -n "${ENVIRONMENT_NAME:?ENVIRONMENT_NAME is required}"
+      - test -n "${TTL_HOURS:?TTL_HOURS is required}"
+      - test -n "${OWNER:?OWNER is required}"
+      - test -n "${CREATED_AT:?CREATED_AT is required}"
+      - test -n "${TF_STATE_BUCKET:?TF_STATE_BUCKET is required}"
+      - test -n "${TF_LOCK_TABLE:?TF_LOCK_TABLE is required}"
+      - export TF_STATE_PREFIX="${TF_STATE_PREFIX:-envs}"
+      - export ALLOWED_SSH_CIDR="${ALLOWED_SSH_CIDR:-127.0.0.1/32}"
+      - cd terraform/environment
+      - terraform init -backend-config="bucket=${TF_STATE_BUCKET}" -backend-config="key=${TF_STATE_PREFIX}/${ENVIRONMENT_NAME}/terraform.tfstate" -backend-config="region=${AWS_REGION}" -backend-config="dynamodb_table=${TF_LOCK_TABLE}" -backend-config="encrypt=true"
+      - terraform validate
+  build:
+    commands:
+      - set -euo pipefail
+      - export TF_VAR_aws_region="${AWS_REGION}"
+      - export TF_VAR_project_name="${PROJECT_NAME:-aws-env-provisioner}"
+      - export TF_VAR_environment_name="${ENVIRONMENT_NAME}"
+      - export TF_VAR_owner="${OWNER}"
+      - export TF_VAR_created_at="${CREATED_AT}"
+      - export TF_VAR_ttl_hours="${TTL_HOURS}"
+      - export TF_VAR_allowed_ssh_cidr="${ALLOWED_SSH_CIDR}"
+      - export TF_VAR_state_bucket_name="${TF_STATE_BUCKET}"
+      - export TF_VAR_state_key="${TF_STATE_PREFIX}/${ENVIRONMENT_NAME}/terraform.tfstate"
+      - |
+        case "${ACTION}" in
+          provision)
+            terraform apply -auto-approve
+            ;;
+          destroy)
+            terraform destroy -auto-approve
+            ;;
+          *)
+            echo "ACTION must be provision or destroy"
+            exit 1
+            ;;
+        esac
+  post_build:
+    commands:
+      - |
+        if [ "${ACTION:-}" = "destroy" ] && [ "${CODEBUILD_BUILD_SUCCEEDING:-0}" = "1" ]; then
+          aws ssm delete-parameter --name "/${PROJECT_NAME:-aws-env-provisioner}/warnings/${ENVIRONMENT_NAME}" || true
+          aws ssm delete-parameter --name "/${PROJECT_NAME:-aws-env-provisioner}/teardown-requests/${ENVIRONMENT_NAME}" || true
+        fi
+
