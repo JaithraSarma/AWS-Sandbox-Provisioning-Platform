@@ -356,3 +356,161 @@ Free tier depends on account age, region, and existing usage. Check AWS Billing 
 * A manual destroy API endpoint
 * Cost guardrails with AWS Budgets
 * Full least-privilege IAM hardening
+
+---
+
+---
+
+# Common Deployment Pitfalls and Required IAM Permissions
+
+This project relies heavily on runtime Terraform execution through CodeBuild. Missing IAM permissions are the most common deployment issue.
+
+## Critical EC2 Read Permissions
+
+Terraform requires several EC2 read APIs in addition to create/delete permissions. Missing these causes Terraform apply failures during resource reconciliation.
+
+Required actions include:
+
+```json
+"ec2:DescribeVpcAttribute",
+"ec2:DescribeInstanceTypes",
+"ec2:DescribeInstanceAttribute"
+```
+
+Without these, Terraform may fail after partially provisioning infrastructure.
+
+---
+
+## SSM Parameter Namespace Restrictions
+
+AWS reserves the `/aws/*` SSM namespace.
+
+Using:
+
+```text
+/aws-env-provisioner/environments/*
+```
+
+may fail with:
+
+```text
+AccessDeniedException: No access to reserved parameter name
+```
+
+Use a custom namespace instead:
+
+```text
+/<PROJECT_NAMESPACE>/aws-env-provisioner/environments/*
+```
+
+Example:
+
+```text
+/jaith/aws-env-provisioner/environments/jaith-test
+```
+
+---
+
+## SSM Tagging Permissions
+
+Terraform automatically manages tags on SSM parameters.
+
+The CodeBuild role requires:
+
+```json
+"ssm:AddTagsToResource",
+"ssm:ListTagsForResource",
+"ssm:RemoveTagsFromResource"
+```
+
+Without these permissions, provisioning may succeed partially but fail during SSM parameter tagging.
+
+---
+
+## Region Consistency
+
+The backend region, provider region, and deployed resources must all match.
+
+If infrastructure is created in `ap-south-1`, ensure:
+
+```bash
+-backend-config="region=ap-south-1"
+-var="aws_region=ap-south-1"
+```
+
+Region mismatches can cause:
+- API Gateway lookup failures
+- CodeBuild ARN mismatches
+- EventBridge lookup failures
+- Terraform state inconsistencies
+
+---
+
+## Existing Resource Conflicts
+
+If Terraform state becomes inconsistent or partially destroyed, redeployments may fail with:
+
+```text
+ResourceAlreadyExistsException
+```
+
+for:
+- Lambda functions
+- CodeBuild projects
+- CloudWatch log groups
+- IAM roles
+
+Fix options:
+- import resources into Terraform state
+- manually delete orphaned resources
+- or rebuild the backend cleanly
+
+---
+
+## S3 Backend Deletion
+
+Terraform backend buckets with versioning enabled cannot be deleted until all object versions are removed.
+
+Common error:
+
+```text
+BucketNotEmpty
+```
+
+You must:
+1. empty bucket objects
+2. remove object versions
+3. then delete the bucket
+
+---
+
+## Recommended Deployment Order
+
+Always deploy and destroy in this order:
+
+### Deploy
+1. `terraform/backend`
+2. `terraform/infrastructure`
+
+### Destroy
+1. `terraform/infrastructure`
+2. `terraform/backend`
+
+Destroying the backend first can strand Terraform state and orphan infrastructure resources.
+
+---
+
+## Temporary Broad IAM During Debugging
+
+During initial development/debugging, temporarily broad IAM permissions may be necessary to identify missing Terraform runtime actions.
+
+Recommended temporary scope:
+
+```json
+"ec2:*",
+"ssm:*"
+```
+
+Tighten permissions afterward once the required action set is confirmed.
+
+---
