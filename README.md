@@ -359,8 +359,6 @@ Free tier depends on account age, region, and existing usage. Check AWS Billing 
 
 ---
 
----
-
 # Common Deployment Pitfalls and Required IAM Permissions
 
 This project relies heavily on runtime Terraform execution through CodeBuild. Missing IAM permissions are the most common deployment issue.
