@@ -240,7 +240,7 @@
         "ssm:PutParameter",
         "ssm:RemoveTagsFromResource"
       ],
-      "Resource": "arn:aws:ssm:ap-south-1:578257747901:parameter/aws-env-provisioner/*"
+      "Resource": "*"
     },
     {
       "Sid": "ManageProvisionedEc2Environment",
