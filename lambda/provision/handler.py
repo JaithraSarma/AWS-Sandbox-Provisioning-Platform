@@ -33,7 +33,7 @@ def lambda_handler(event, context):
             "status": "provision-requested",
         }
         ssm.put_parameter(
-            Name=f"/{PROJECT_NAME}/environments/{request_data['environment_name']}",
+            Name=f"/jaith/{PROJECT_NAME}/environments/{request_data['environment_name']}",
             Type="String",
             Value=json.dumps(metadata, sort_keys=True),
             Overwrite=True,

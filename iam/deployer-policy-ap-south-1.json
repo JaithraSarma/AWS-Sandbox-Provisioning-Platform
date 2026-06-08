@@ -112,6 +112,7 @@
         "lambda:GetFunction",
         "lambda:GetFunctionCodeSigningConfig",
         "lambda:GetPolicy",
+        "lambda:InvokeFunction",
         "lambda:ListVersionsByFunction",
         "lambda:RemovePermission",
         "lambda:TagResource",

@@ -14,3 +14,12 @@ __pycache__/
 .pytest_cache/
 .env
 .DS_Store
+*.env
+.env.*
+*.pem
+*.key
+terraform.exe
+*.tfstate*
+node_modules/
+.venv/
+venv/
