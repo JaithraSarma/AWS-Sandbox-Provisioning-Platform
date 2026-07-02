@@ -121,7 +121,7 @@ resource "aws_instance" "this" {
 
 resource "aws_ssm_parameter" "environment_metadata" {
   overwrite = true
-  name      = "/jaith/aws-env-provisioner/environments/${var.environment_name}"
+  name      = "/${var.project_name}/environments/${var.environment_name}"
   type      = "String"
   value = jsonencode({
     environment_name = var.environment_name
