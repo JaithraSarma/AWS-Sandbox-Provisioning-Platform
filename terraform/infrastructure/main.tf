@@ -146,7 +146,8 @@ resource "aws_iam_role_policy" "codebuild" {
           "ec2:DescribeSecurityGroups",
           "ec2:DescribeSubnets",
           "ec2:DescribeTags",
-          "ec2:DescribeVpcs"
+          "ec2:DescribeVpcs",
+          "ec2:DescribeVpcAttribute"
         ]
         Resource = "*"
       },
