@@ -13,6 +13,7 @@ variable "project_name" {
 variable "state_bucket_name" {
   description = "Terraform remote state bucket."
   type        = string
+  default     = ""
 }
 
 variable "state_key_prefix" {
@@ -24,6 +25,7 @@ variable "state_key_prefix" {
 variable "lock_table_name" {
   description = "Terraform state lock table."
   type        = string
+  default     = ""
 }
 
 variable "repository_url" {
