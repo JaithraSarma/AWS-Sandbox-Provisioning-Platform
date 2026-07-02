@@ -177,6 +177,8 @@ resource "aws_iam_role_policy" "codebuild" {
         Effect = "Allow"
         Action = [
           "ssm:GetParameter",
+          "ssm:GetParameters",
+          "ssm:GetParametersByPath",
           "ssm:PutParameter",
           "ssm:DeleteParameter",
           "ssm:AddTagsToResource",
