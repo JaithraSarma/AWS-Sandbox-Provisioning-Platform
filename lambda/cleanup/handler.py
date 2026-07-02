@@ -133,7 +133,7 @@ def put_marker(kind, environment_name, value):
 
 
 def marker_name(kind, environment_name):
-    return f"/{PROJECT_NAME}/{kind}/{environment_name}"
+    return f"/env/{PROJECT_NAME}/{kind}/{environment_name}"
 
 
 def publish_warning(env_data, expires_at):

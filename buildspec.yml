@@ -56,7 +56,7 @@ phases:
     commands:
       - |
         if [ "${ACTION:-}" = "destroy" ] && [ "${CODEBUILD_BUILD_SUCCEEDING:-0}" = "1" ]; then
-          aws ssm delete-parameter --name "/${PROJECT_NAME:-aws-env-provisioner}/warnings/${ENVIRONMENT_NAME}" || true
-          aws ssm delete-parameter --name "/${PROJECT_NAME:-aws-env-provisioner}/teardown-requests/${ENVIRONMENT_NAME}" || true
+          aws ssm delete-parameter --name "/env/${PROJECT_NAME:-aws-env-provisioner}/warnings/${ENVIRONMENT_NAME}" || true
+          aws ssm delete-parameter --name "/env/${PROJECT_NAME:-aws-env-provisioner}/teardown-requests/${ENVIRONMENT_NAME}" || true
         fi
 

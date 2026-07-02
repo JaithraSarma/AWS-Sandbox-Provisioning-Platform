@@ -180,9 +180,9 @@ resource "aws_iam_role_policy" "codebuild" {
           "ssm:DeleteParameter"
         ]
         Resource = [
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/environments/*",
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/warnings/*",
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/teardown-requests/*"
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/environments/*",
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/warnings/*",
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/teardown-requests/*"
         ]
       }
     ]
@@ -300,7 +300,7 @@ resource "aws_iam_role_policy" "provision_lambda" {
           "ssm:GetParameter",
           "ssm:PutParameter"
         ]
-        Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/environments/*"
+        Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/environments/*"
       }
     ]
   })
@@ -433,8 +433,8 @@ resource "aws_iam_role_policy" "cleanup_lambda" {
           "ssm:PutParameter"
         ]
         Resource = [
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/warnings/*",
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.project_name}/teardown-requests/*"
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/warnings/*",
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/teardown-requests/*"
         ]
       }
     ]
