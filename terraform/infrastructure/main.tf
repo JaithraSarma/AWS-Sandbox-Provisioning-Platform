@@ -135,7 +135,21 @@ resource "aws_iam_role_policy" "codebuild" {
         Sid    = "ReadEc2ForTerraform"
         Effect = "Allow"
         Action = [
-          "ec2:Describe*"
+          "ec2:DescribeAccountAttributes",
+          "ec2:DescribeAvailabilityZones",
+          "ec2:DescribeImages",
+          "ec2:DescribeInstances",
+          "ec2:DescribeInstanceTypes",
+          "ec2:DescribeInstanceAttribute",
+          "ec2:DescribeInternetGateways",
+          "ec2:DescribeKeyPairs",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:DescribeRouteTables",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeTags",
+          "ec2:DescribeVpcAttribute",
+          "ec2:DescribeVpcs"
         ]
         Resource = "*"
       },
@@ -178,7 +192,6 @@ resource "aws_iam_role_policy" "codebuild" {
         Action = [
           "ssm:GetParameter",
           "ssm:GetParameters",
-          "ssm:GetParametersByPath",
           "ssm:PutParameter",
           "ssm:DeleteParameter",
           "ssm:AddTagsToResource",
@@ -190,6 +203,14 @@ resource "aws_iam_role_policy" "codebuild" {
           "arn:aws:ssm:${local.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/warnings/*",
           "arn:aws:ssm:${local.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/teardown-requests/*"
         ]
+      },
+      {
+        Sid    = "DescribeSSMParameters"
+        Effect = "Allow"
+        Action = [
+          "ssm:DescribeParameters"
+        ]
+        Resource = "*"
       }
     ]
   })
