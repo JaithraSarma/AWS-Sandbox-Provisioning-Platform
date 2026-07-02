@@ -192,6 +192,7 @@ resource "aws_iam_role_policy" "codebuild" {
         Action = [
           "ssm:GetParameter",
           "ssm:GetParameters",
+          "ssm:DescribeParameters",
           "ssm:PutParameter",
           "ssm:DeleteParameter",
           "ssm:AddTagsToResource",
