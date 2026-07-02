@@ -178,7 +178,9 @@ resource "aws_iam_role_policy" "codebuild" {
         Action = [
           "ssm:GetParameter",
           "ssm:PutParameter",
-          "ssm:DeleteParameter"
+          "ssm:DeleteParameter",
+          "ssm:AddTagsToResource",
+          "ssm:ListTagsForResource"
         ]
         Resource = [
           "arn:aws:ssm:${local.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/environments/*",
