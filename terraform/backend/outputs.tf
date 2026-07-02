@@ -6,3 +6,7 @@ output "lock_table_name" {
   value = aws_dynamodb_table.locks.name
 }
 
+output "aws_region" {
+  value = var.aws_region
+}
+

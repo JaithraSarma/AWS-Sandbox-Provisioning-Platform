@@ -1,6 +1,18 @@
 data "aws_caller_identity" "current" {}
 
+data "terraform_remote_state" "backend" {
+  backend = "local"
+
+  config = {
+    path = "${path.module}/../backend/terraform.tfstate"
+  }
+}
+
 locals {
+  aws_region        = data.terraform_remote_state.backend.outputs.aws_region
+  state_bucket_name = data.terraform_remote_state.backend.outputs.state_bucket_name
+  lock_table_name   = data.terraform_remote_state.backend.outputs.lock_table_name
+
   codebuild_project_name = "${var.project_name}-terraform"
   provision_lambda_name  = "${var.project_name}-provision-api"
   cleanup_lambda_name    = "${var.project_name}-cleanup"
@@ -90,7 +102,7 @@ resource "aws_iam_role_policy" "codebuild" {
         Sid      = "ListTerraformStatePrefix"
         Effect   = "Allow"
         Action   = "s3:ListBucket"
-        Resource = "arn:aws:s3:::${var.state_bucket_name}"
+        Resource = "arn:aws:s3:::${local.state_bucket_name}"
         Condition = {
           StringLike = {
             "s3:prefix" = ["${var.state_key_prefix}/*"]
@@ -105,7 +117,7 @@ resource "aws_iam_role_policy" "codebuild" {
           "s3:PutObject",
           "s3:DeleteObject"
         ]
-        Resource = "arn:aws:s3:::${var.state_bucket_name}/${var.state_key_prefix}/*"
+        Resource = "arn:aws:s3:::${local.state_bucket_name}/${var.state_key_prefix}/*"
       },
       {
         Sid    = "ManageTerraformLocks"
@@ -117,7 +129,7 @@ resource "aws_iam_role_policy" "codebuild" {
           "dynamodb:DeleteItem",
           "dynamodb:UpdateItem"
         ]
-        Resource = "arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${var.lock_table_name}"
+        Resource = "arn:aws:dynamodb:${local.aws_region}:${data.aws_caller_identity.current.account_id}:table/${local.lock_table_name}"
       },
       {
         Sid    = "ReadEc2ForTerraform"
@@ -180,9 +192,9 @@ resource "aws_iam_role_policy" "codebuild" {
           "ssm:DeleteParameter"
         ]
         Resource = [
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/environments/*",
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/warnings/*",
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/teardown-requests/*"
+          "arn:aws:ssm:${local.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/environments/*",
+          "arn:aws:ssm:${local.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/warnings/*",
+          "arn:aws:ssm:${local.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/teardown-requests/*"
         ]
       }
     ]
@@ -211,7 +223,7 @@ resource "aws_codebuild_project" "terraform" {
 
     environment_variable {
       name  = "AWS_REGION"
-      value = var.aws_region
+      value = local.aws_region
     }
 
     environment_variable {
@@ -221,12 +233,12 @@ resource "aws_codebuild_project" "terraform" {
 
     environment_variable {
       name  = "TF_STATE_BUCKET"
-      value = var.state_bucket_name
+      value = local.state_bucket_name
     }
 
     environment_variable {
       name  = "TF_LOCK_TABLE"
-      value = var.lock_table_name
+      value = local.lock_table_name
     }
 
     environment_variable {
@@ -300,7 +312,7 @@ resource "aws_iam_role_policy" "provision_lambda" {
           "ssm:GetParameter",
           "ssm:PutParameter"
         ]
-        Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/environments/*"
+        Resource = "arn:aws:ssm:${local.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/environments/*"
       }
     ]
   })
@@ -433,8 +445,8 @@ resource "aws_iam_role_policy" "cleanup_lambda" {
           "ssm:PutParameter"
         ]
         Resource = [
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/warnings/*",
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/teardown-requests/*"
+          "arn:aws:ssm:${local.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/warnings/*",
+          "arn:aws:ssm:${local.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/env/${var.project_name}/teardown-requests/*"
         ]
       }
     ]
