@@ -135,19 +135,7 @@ resource "aws_iam_role_policy" "codebuild" {
         Sid    = "ReadEc2ForTerraform"
         Effect = "Allow"
         Action = [
-          "ec2:DescribeAccountAttributes",
-          "ec2:DescribeAvailabilityZones",
-          "ec2:DescribeImages",
-          "ec2:DescribeInstances",
-          "ec2:DescribeInternetGateways",
-          "ec2:DescribeKeyPairs",
-          "ec2:DescribeNetworkInterfaces",
-          "ec2:DescribeRouteTables",
-          "ec2:DescribeSecurityGroups",
-          "ec2:DescribeSubnets",
-          "ec2:DescribeTags",
-          "ec2:DescribeVpcs",
-          "ec2:DescribeVpcAttribute"
+          "ec2:Describe*"
         ]
         Resource = "*"
       },
