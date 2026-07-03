@@ -26,7 +26,7 @@
 
   Edit [main.tf](file:///c:/Users/Jaith/Desktop/projects/aws%20env%20provisioner/terraform/modules/environment/main.tf#L124):
   ```diff
-  -  name      = "/jaith/aws-env-provisioner/environments/${var.environment_name}"
+  -  name      = "/<OWNER>/aws-env-provisioner/environments/${var.environment_name}"
   +  name      = "/${var.project_name}/environments/${var.environment_name}"
   ```
 
@@ -49,7 +49,7 @@
 
   Edit [handler.py](file:///c:/Users/Jaith/Desktop/projects/aws%20env%20provisioner/lambda/provision/handler.py#L36):
   ```diff
-  -            Name=f"/jaith/{PROJECT_NAME}/environments/{request_data['environment_name']}",
+  -            Name=f"/<OWNER>/{PROJECT_NAME}/environments/{request_data['environment_name']}",
   +            Name=f"/{PROJECT_NAME}/environments/{request_data['environment_name']}",
   ```
 
@@ -57,4 +57,4 @@
 
   - Deploy or invoke the Provision Lambda.
   - Confirm parameters are created only under `/${PROJECT_NAME}/environments/...`.
-  - Confirm no new parameters are created under the legacy `/jaith/...` namespace.
+  - Confirm no new parameters are created under the legacy `/<OWNER>/...` namespace.

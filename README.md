@@ -1,139 +1,93 @@
-# aws-env-provisioner
+# AWS Sandbox Provisioning Platform
 
-API-driven, self-service AWS environment provisioning with automatic TTL cleanup.
-
-Developers call an API Gateway endpoint with an environment name and TTL. API Gateway invokes a Python 3.12 Lambda that validates the request, stores request metadata in SSM Parameter Store, and starts an AWS CodeBuild project. CodeBuild runs Terraform to provision an isolated environment:
-
-- VPC
-- Public subnet
-- Internet gateway and route table
-- EC2 `t2.micro`
-- Security group
-- SSM environment metadata
-- S3 remote Terraform state
-- DynamoDB state locking
-
-Every provisioned environment is tagged with:
-
-- `owner`
-- `created-at`
-- `ttl-hours`
-- `allowed-ssh-cidr`
-- `provisioner/project`
-- `provisioner/environment`
-
-A separate EventBridge-scheduled cleanup Lambda runs every 2 hours. It scans live EC2 instances by tag, sends an SNS email 30 minutes before teardown when the scan catches the warning window, and starts a CodeBuild `destroy` run for expired environments.
+Self-service, API-driven AWS sandbox environments with automatic TTL-based cleanup — built on Lambda, CodeBuild, and Terraform.
 
 ---
 
-# Architecture
+## Overview
+
+Provisioning a throwaway AWS environment for testing or debugging usually means one of two things: filing a ticket and waiting on a platform team, or handing developers standing AWS access and hoping they remember to clean up after themselves. Neither scales well — the first creates a bottleneck, the second creates cost leakage and security drift.
+
+This project removes both problems. A developer calls a single API endpoint with an environment name and a time-to-live (TTL). Everything after that — provisioning, tagging, expiry tracking, warning notifications, and teardown — is fully automated. No AWS console access, no manual Terraform commands, and no environment left running past its TTL.
+
+---
+
+## Architecture
 
 ```mermaid
 flowchart LR
     Dev["Developer"] --> APIGW["API Gateway HTTP API"]
     APIGW --> ProvisionLambda["Provision Lambda"]
     ProvisionLambda --> SSM["SSM Parameter Store"]
-    ProvisionLambda --> CB["CodeBuild Terraform project"]
-    CB --> TF["Terraform environment root"]
+    ProvisionLambda --> CB["CodeBuild Terraform Project"]
+    CB --> TF["Terraform: environment root"]
     TF --> AWSENV["VPC + Subnet + SG + EC2"]
-    TF --> S3["S3 remote state"]
-    TF --> DDB["DynamoDB lock table"]
+    TF --> S3["S3 Remote State"]
+    TF --> DDB["DynamoDB Lock Table"]
 
-    EventBridge["EventBridge schedule"] --> CleanupLambda["Cleanup Lambda"]
-    CleanupLambda --> EC2Tags["EC2 tag scan"]
-    CleanupLambda --> SNS["SNS email warning"]
+    EventBridge["EventBridge Schedule (2h)"] --> CleanupLambda["Cleanup Lambda"]
+    CleanupLambda --> EC2Tags["EC2 Tag Scan"]
+    CleanupLambda --> SNS["SNS Warning Email"]
     CleanupLambda --> CB
 ```
 
+**Two independent Terraform layers:**
+
+| Layer | Root | State key | Deployed by |
+|---|---|---|---|
+| **Platform** — API Gateway, both Lambdas, CodeBuild project, EventBridge rule, SNS topic, IAM roles | `terraform/infrastructure` | `infra/main/terraform.tfstate` | Deployed once, manually, by the operator |
+| **Sandbox environment** — VPC, subnet, security group, EC2 instance | `terraform/environment` | `envs/<environment-name>/terraform.tfstate` | Deployed automatically, per request, by CodeBuild |
+
+Each sandbox gets its own isolated state file, so provisioning or destroying one environment can never touch another environment — or the platform itself.
+
 ---
 
-# Repository Layout
+## How It Works
+
+1. **Provision** — A developer sends `POST /environments` with an environment name and TTL. API Gateway invokes the **Provision Lambda**, which validates the request, records metadata in SSM Parameter Store, and starts a **CodeBuild** run against the `terraform/environment` Terraform root using a state key scoped to that environment name.
+2. **Tag** — Every resource created is tagged with `owner`, `created-at`, `ttl-hours`, `allowed-ssh-cidr`, `provisioner/project`, and `provisioner/environment` — the source of truth the cleanup process reads back later.
+3. **Monitor** — An **EventBridge** rule invokes the **Cleanup Lambda** every 2 hours. It scans live EC2 instances by tag, computes each environment's expiry time from its tags, and sends a one-time SNS warning email 30 minutes before expiry.
+4. **Destroy** — Once an environment's TTL has elapsed, the Cleanup Lambda starts a CodeBuild `destroy` run scoped to that environment's own state file. On success, its warning and teardown markers in SSM are cleaned up.
+
+No developer ever runs `terraform apply` or `terraform destroy` themselves for a sandbox — CodeBuild does, triggered entirely by the Lambdas.
+
+---
+
+## Repository Layout
 
 ```text
-buildspec.yml                     # CodeBuild provision/destroy commands
+buildspec.yml                      # CodeBuild provision/destroy commands
 
 lambda/
-  provision/handler.py             # API Gateway Lambda
-  cleanup/handler.py               # scheduled TTL cleanup Lambda
+  provision/handler.py             # API Gateway Lambda — validates & starts provisioning
+  cleanup/handler.py               # Scheduled Lambda — TTL scan, warnings, teardown
 
 terraform/
-  backend/                         # one-time S3 + DynamoDB bootstrap
-  infrastructure/                  # API Gateway, Lambdas, CodeBuild, SNS, EventBridge, IAM
-  environment/                     # Terraform root executed by CodeBuild
-  modules/environment/             # VPC/subnet/EC2/security group module
+  backend/                         # One-time S3 + DynamoDB state backend bootstrap
+  infrastructure/                  # Platform: API Gateway, Lambdas, CodeBuild, SNS, EventBridge, IAM
+  environment/                     # Terraform root executed by CodeBuild per sandbox
+  modules/environment/             # Reusable VPC / subnet / EC2 / security group module
 ```
 
 ---
 
-# Request API
+## Prerequisites
 
-Endpoint:
+- AWS account (free tier eligible)
+- Terraform `>= 1.6`
+- AWS CLI, configured locally for initial bootstrap
+- This repository hosted on GitHub, CodeCommit, or another CodeBuild-supported source
+- CodeBuild source access configured if the repository is private
 
-```http
-POST /environments
-```
-
-Example:
-
-```bash
-curl -X POST "<PROVISION_URL>" \
-  -H "content-type: application/json" \
-  -d '{
-    "environment_name": "jaith-test",
-    "ttl_hours": 2,
-    "owner": "jaith",
-    "allowed_ssh_cidr": "203.0.113.10/32"
-  }'
-```
-
-Required fields:
-
-| Field              | Description                                                    |
-| ------------------ | -------------------------------------------------------------- |
-| `environment_name` | 3-40 chars, alphanumeric or hyphen, no leading/trailing hyphen |
-| `ttl_hours`        | One of `2`, `4`, `8`, `24`                                     |
-
-Optional fields:
-
-| Field              | Description                                                      |
-| ------------------ | ---------------------------------------------------------------- |
-| `owner`            | Stored in tags. If omitted, Lambda uses the caller source IP.    |
-| `allowed_ssh_cidr` | Security group SSH CIDR. Defaults to `default_allowed_ssh_cidr`. |
-
-Successful response:
-
-```json
-{
-  "message": "Provision build started",
-  "environment_name": "jaith-test",
-  "build_id": "aws-env-provisioner-terraform:...",
-  "build_arn": "arn:aws:codebuild:...",
-  "created_at": "2026-05-18T10:15:00Z"
-}
-```
+All runtime IAM roles are created by Terraform itself — no `AdministratorAccess` is required for CodeBuild or either Lambda at runtime.
 
 ---
 
-# Prerequisites
+## Setup
 
-* AWS account with free tier eligibility.
-* Terraform `>= 1.6`.
-* AWS CLI configured locally for initial bootstrap.
-* This repository pushed to GitHub, CodeCommit, or another CodeBuild-supported source.
-* CodeBuild source access configured for your repo if it is private.
+### 1. Bootstrap Terraform state
 
-The Terraform in `terraform/infrastructure` creates the runtime IAM roles. You do not need `AdministratorAccess` for CodeBuild or either Lambda at runtime.
-
----
-
-# 1. Bootstrap Terraform State
-
-The backend stack creates:
-
-* S3 bucket for remote state.
-* DynamoDB table for state locks.
-
-Pick a globally unique S3 bucket name:
+Creates the S3 bucket and DynamoDB table used for remote state across the rest of the project.
 
 ```bash
 cd terraform/backend
@@ -146,21 +100,11 @@ terraform apply \
   -var="lock_table_name=aws-env-provisioner-tf-locks"
 ```
 
-Save the output values.
+Save the output values — you'll need them in the next step.
 
----
+### 2. Deploy the platform
 
-# 2. Deploy Main Infrastructure
-
-This creates:
-
-* API Gateway HTTP API.
-* Provision Lambda.
-* Cleanup Lambda.
-* EventBridge schedule.
-* SNS warning topic and optional email subscription.
-* CodeBuild Terraform project.
-* Runtime IAM roles and least-privilege inline policies.
+Creates the API Gateway, both Lambdas, the CodeBuild project, EventBridge schedule, SNS topic, and runtime IAM roles.
 
 ```bash
 cd terraform/infrastructure
@@ -181,123 +125,84 @@ terraform apply \
   -var="sns_email=you@example.com"
 ```
 
-Confirm the SNS email subscription. AWS will not deliver email notifications until you confirm it.
+Confirm the SNS email subscription — AWS will not deliver warning emails until confirmed.
 
-Get the API URL:
+Retrieve the API endpoint:
 
 ```bash
 terraform output provision_url
 ```
 
----
-
-# Runtime IAM Roles
-
-Terraform creates these roles:
-
-| Role                                     | Purpose                                                                             |
-| ---------------------------------------- | ----------------------------------------------------------------------------------- |
-| `aws-env-provisioner-terraform-role`     | CodeBuild service role that runs Terraform provision/destroy.                       |
-| `aws-env-provisioner-provision-api-role` | Provision Lambda role that writes SSM metadata and starts provision builds.         |
-| `aws-env-provisioner-cleanup-role`       | Cleanup Lambda role that scans tags, sends SNS warnings, and starts destroy builds. |
+> **Note:** Steps 1 and 2 deploy the *platform*, and are a one-time, manual operation. They are never repeated per sandbox environment.
 
 ---
 
-# Provision Flow Details
+## API Reference
 
-`lambda/provision/handler.py`
+### `POST /environments`
 
-1. Accepts JSON body or query parameters.
+**Request body:**
 
-2. Validates:
-
-   * environment name format
-   * TTL is one of `2`, `4`, `8`, `24`
-   * SSH CIDR is valid
-
-3. Stores request metadata in:
-
-```text
-/<PROJECT_NAMESPACE>/aws-env-provisioner/environments/<environment-name>
+```json
+{
+  "environment_name": "<OWNER>-test",
+  "ttl_hours": 2,
+  "owner": "<OWNER>",
+  "allowed_ssh_cidr": "203.0.113.10/32"
+}
 ```
 
-4. Starts CodeBuild with environment overrides:
+| Field | Required | Description |
+|---|---|---|
+| `environment_name` | Yes | 3–40 characters, alphanumeric or hyphen, no leading/trailing hyphen |
+| `ttl_hours` | Yes | One of `2`, `4`, `8`, `24` |
+| `owner` | No | Stored in tags. Defaults to the caller's source IP if omitted |
+| `allowed_ssh_cidr` | No | Security group SSH CIDR. Defaults to `default_allowed_ssh_cidr` |
 
-```text
-ACTION=provision
-ENVIRONMENT_NAME=<name>
-TTL_HOURS=<2|4|8|24>
-OWNER=<owner>
-CREATED_AT=<UTC timestamp>
-ALLOWED_SSH_CIDR=<cidr>
-```
+**Response (`200`):**
 
-`buildspec.yml` initializes the backend key:
-
-```text
-envs/<environment-name>/terraform.tfstate
-```
-
-and runs:
-
-```bash
-terraform apply -auto-approve
+```json
+{
+  "message": "Provision build started",
+  "environment_name": "<OWNER>-test",
+  "build_id": "aws-env-provisioner-terraform:...",
+  "build_arn": "arn:aws:codebuild:...",
+  "created_at": "2026-05-18T10:15:00Z"
+}
 ```
 
 ---
 
-# Destroy Flow Details
+## Runtime IAM Roles
 
-`lambda/cleanup/handler.py`
+| Role | Purpose |
+|---|---|
+| `aws-env-provisioner-terraform-role` | CodeBuild service role that runs Terraform provision/destroy |
+| `aws-env-provisioner-provision-api-role` | Provision Lambda role — writes SSM metadata, starts provision builds |
+| `aws-env-provisioner-cleanup-role` | Cleanup Lambda role — scans tags, sends SNS warnings, starts destroy builds |
 
-1. Runs every 2 hours through EventBridge.
-2. Scans EC2 instances with:
-
-```text
-provisioner/project=aws-env-provisioner
-```
-
-3. Reads `created-at` and `ttl-hours`.
-4. Sends one SNS warning per environment when inside the warning window.
-5. Starts CodeBuild with:
-
-```text
-ACTION=destroy
-ENVIRONMENT_NAME=<name>
-TTL_HOURS=<original ttl>
-OWNER=<original owner>
-CREATED_AT=<original timestamp>
-ALLOWED_SSH_CIDR=<original cidr>
-```
-
-6. `buildspec.yml` runs:
-
-```bash
-terraform destroy -auto-approve
-```
-
-7. On successful destroy, CodeBuild deletes warning and teardown marker parameters.
+Each role is scoped to only what its function needs — no role has broad EC2, IAM, or account-wide permissions.
 
 ---
 
-# Verification
+## Verification
 
-Provision:
+**Provision an environment:**
 
 ```bash
 curl -X POST "<PROVISION_URL>" \
   -H "content-type: application/json" \
-  -d '{"environment_name":"jaith-test","ttl_hours":2,"owner":"jaith","allowed_ssh_cidr":"203.0.113.10/32"}'
+  -d '{"environment_name":"<OWNER>-test","ttl_hours":2,"owner":"<OWNER>","allowed_ssh_cidr":"203.0.113.10/32"}'
 ```
 
-Watch CodeBuild:
+**Watch the CodeBuild run:**
 
 ```bash
 aws codebuild list-builds-for-project \
   --project-name aws-env-provisioner-terraform
 ```
 
-Check live environments:
+**Check live environments:**
 
 ```bash
 aws ec2 describe-instances \
@@ -306,16 +211,16 @@ aws ec2 describe-instances \
   --output table
 ```
 
-Check SSM metadata:
+**Check SSM metadata:**
 
 ```bash
 aws ssm get-parameter \
-  --name "/<PROJECT_NAMESPACE>/aws-env-provisioner/environments/jaith-test" \
+  --name "/<PROJECT_NAMESPACE>/aws-env-provisioner/environments/<OWNER>-test" \
   --query "Parameter.Value" \
   --output text
 ```
 
-Invoke cleanup manually:
+**Trigger cleanup manually:**
 
 ```bash
 aws lambda invoke \
@@ -328,187 +233,88 @@ cat response.json
 
 ---
 
-# Free Tier Notes
+## Cost Profile
 
-This project is intentionally small:
+This project is designed to stay inside AWS free tier for light usage:
 
-* EC2 `t2.micro`
-* One VPC and one public subnet per environment
-* CodeBuild `BUILD_GENERAL1_SMALL`
-* Lambda 128 MB
-* EventBridge scheduled every 2 hours
-* S3 and DynamoDB with tiny state/lock usage
-* SNS email
-* SSM standard parameters
+- EC2 `t2.micro`
+- One VPC and one public subnet per environment
+- CodeBuild `BUILD_GENERAL1_SMALL`
+- Lambda, 128 MB
+- EventBridge, scheduled every 2 hours
+- S3 and DynamoDB with minimal state/lock usage
+- SNS email notifications
+- SSM standard parameters
 
-Free tier depends on account age, region, and existing usage. Check AWS Billing after testing.
-
----
-
-# What Can Be Added Next
-
-* IAM authorization or JWT authorizer on API Gateway
-* API keys and usage plans
-* SSM Session Manager access instead of public SSH
-* Per-owner email routing through SSM
-* Slack or Teams teardown notifications
-* A manual extension endpoint that updates `ttl-hours`
-* A manual destroy API endpoint
-* Cost guardrails with AWS Budgets
-* Full least-privilege IAM hardening
+Actual free-tier eligibility depends on account age, region, and existing usage — check AWS Billing after testing.
 
 ---
 
-# Common Deployment Pitfalls and Required IAM Permissions
+## Troubleshooting
 
-This project relies heavily on runtime Terraform execution through CodeBuild. Missing IAM permissions are the most common deployment issue.
+Issues encountered while building and running this project, and how to resolve them.
 
-## Critical EC2 Read Permissions
-
-Terraform requires several EC2 read APIs in addition to create/delete permissions. Missing these causes Terraform apply failures during resource reconciliation.
-
-Required actions include:
-
+**Terraform apply fails during resource reconciliation**
+Terraform needs several EC2 *read* permissions in addition to create/delete permissions, or applies can fail partway through:
 ```json
 "ec2:DescribeVpcAttribute",
 "ec2:DescribeInstanceTypes",
 "ec2:DescribeInstanceAttribute"
 ```
 
-Without these, Terraform may fail after partially provisioning infrastructure.
+**`AccessDeniedException: No access to reserved parameter name`**
+AWS reserves the `/aws/*` SSM namespace. Use a project-scoped namespace instead, e.g. `/<PROJECT_NAMESPACE>/aws-env-provisioner/environments/*` (example: `/<OWNER>/aws-env-provisioner/environments/<OWNER>-test`).
 
----
-
-## SSM Parameter Namespace Restrictions
-
-AWS reserves the `/aws/*` SSM namespace.
-
-Using:
-
-```text
-/aws-env-provisioner/environments/*
-```
-
-may fail with:
-
-```text
-AccessDeniedException: No access to reserved parameter name
-```
-
-Use a custom namespace instead:
-
-```text
-/<PROJECT_NAMESPACE>/aws-env-provisioner/environments/*
-```
-
-Example:
-
-```text
-/jaith/aws-env-provisioner/environments/jaith-test
-```
-
----
-
-## SSM Tagging Permissions
-
-Terraform automatically manages tags on SSM parameters.
-
-The CodeBuild role requires:
-
+**SSM parameter tagging fails after otherwise successful provisioning**
+The CodeBuild role needs:
 ```json
 "ssm:AddTagsToResource",
 "ssm:ListTagsForResource",
 "ssm:RemoveTagsFromResource"
 ```
 
-Without these permissions, provisioning may succeed partially but fail during SSM parameter tagging.
+**API Gateway, CodeBuild, or EventBridge lookups fail unexpectedly**
+Usually a region mismatch. The backend region, provider region, and `-var="aws_region=..."` must all match exactly.
 
----
+**`ResourceAlreadyExistsException` on redeploy**
+Happens when Terraform state becomes inconsistent or partially destroyed (affects Lambda functions, CodeBuild projects, CloudWatch log groups, IAM roles). Fix by importing the orphaned resource into state, deleting it manually, or rebuilding the backend cleanly.
 
-## Region Consistency
+**`BucketNotEmpty` when deleting the backend bucket**
+S3 backend buckets with versioning enabled can't be deleted while object versions remain. Empty the bucket's objects, remove all object versions, then delete the bucket.
 
-The backend region, provider region, and deployed resources must all match.
+**Recommended deploy/destroy order**
 
-If infrastructure is created in `ap-south-1`, ensure:
-
-```bash
--backend-config="region=ap-south-1"
--var="aws_region=ap-south-1"
-```
-
-Region mismatches can cause:
-- API Gateway lookup failures
-- CodeBuild ARN mismatches
-- EventBridge lookup failures
-- Terraform state inconsistencies
-
----
-
-## Existing Resource Conflicts
-
-If Terraform state becomes inconsistent or partially destroyed, redeployments may fail with:
-
-```text
-ResourceAlreadyExistsException
-```
-
-for:
-- Lambda functions
-- CodeBuild projects
-- CloudWatch log groups
-- IAM roles
-
-Fix options:
-- import resources into Terraform state
-- manually delete orphaned resources
-- or rebuild the backend cleanly
-
----
-
-## S3 Backend Deletion
-
-Terraform backend buckets with versioning enabled cannot be deleted until all object versions are removed.
-
-Common error:
-
-```text
-BucketNotEmpty
-```
-
-You must:
-1. empty bucket objects
-2. remove object versions
-3. then delete the bucket
-
----
-
-## Recommended Deployment Order
-
-Always deploy and destroy in this order:
-
-### Deploy
-1. `terraform/backend`
-2. `terraform/infrastructure`
-
-### Destroy
-1. `terraform/infrastructure`
-2. `terraform/backend`
+| | Order |
+|---|---|
+| **Deploy** | `terraform/backend` → `terraform/infrastructure` |
+| **Destroy** | `terraform/infrastructure` → `terraform/backend` |
 
 Destroying the backend first can strand Terraform state and orphan infrastructure resources.
 
----
-
-## Temporary Broad IAM During Debugging
-
-During initial development/debugging, temporarily broad IAM permissions may be necessary to identify missing Terraform runtime actions.
-
-Recommended temporary scope:
-
+**Debugging IAM permission gaps**
+It can help to temporarily broaden IAM during initial development to isolate exactly which runtime actions Terraform needs:
 ```json
 "ec2:*",
 "ssm:*"
 ```
-
-Tighten permissions afterward once the required action set is confirmed.
+Tighten back down to the minimum required action set once confirmed — this should never ship as the final permission set.
 
 ---
+
+## Known Limitations / Roadmap
+
+This is a working prototype, not a production-hardened platform. Known gaps, in rough priority order:
+
+- No authorizer (IAM or JWT) on the API Gateway endpoint — anyone with the URL can provision environments
+- SSH access is CIDR-restricted but still public; SSM Session Manager would remove the need for open inbound SSH entirely
+- No API keys or usage plans / rate limiting
+- No manual endpoint to extend an environment's TTL or force an early destroy
+- No cost guardrails (e.g., AWS Budgets integration)
+- Notification routing is a single SNS topic rather than per-owner email routing
+- IAM policies are scoped but not yet fully least-privilege audited
+
+---
+
+## License
+
+Add a license of your choice (MIT is a common default for portfolio projects).
