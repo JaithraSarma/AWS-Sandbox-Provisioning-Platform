@@ -302,4 +302,4 @@ This is a working prototype, not a production-hardened platform. Known gaps, in 
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+Add a license of your choice (MIT is a common default for portfolio projects).
