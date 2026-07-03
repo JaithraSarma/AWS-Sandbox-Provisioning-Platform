@@ -40,13 +40,12 @@ variable "source_version" {
 }
 
 variable "sns_email" {
-  description = "Email address that receives teardown warnings. Leave empty to create the topic without a subscription."
+  description = "Email address that receives teardown warnings."
   type        = string
-  default     = ""
 
   validation {
-    condition     = var.sns_email == "" || can(regex("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$", var.sns_email))
-    error_message = "The sns_email variable must be a valid email address or an empty string."
+    condition     = can(regex("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$", var.sns_email))
+    error_message = "The sns_email variable must be a valid email address."
   }
 }
 
