@@ -56,69 +56,15 @@ terraform/
 
 ---
 
-## Prerequisites
-
-- AWS account (free tier eligible)
-- Terraform `>= 1.6`
-- AWS CLI, configured locally for initial bootstrap
-- This repository hosted on GitHub, CodeCommit, or another CodeBuild-supported source
-- CodeBuild source access configured if the repository is private
-
-All runtime IAM roles are created by Terraform itself; no `AdministratorAccess` is required for CodeBuild or either Lambda at runtime.
-
----
-
 ## Setup
 
-### 1. Bootstrap Terraform state
+To set up the AWS Sandbox Provisioning Platform, see the detailed [Setup Guide](setup.md) for step-by-step instructions. The setup guide covers:
 
-Creates the S3 bucket and DynamoDB table used for remote state across the rest of the project.
-
-```bash
-cd terraform/backend
-
-terraform init
-
-terraform apply \
-  -var="aws_region=ap-south-1" \
-  -var="state_bucket_name=<globally-unique-state-bucket>" \
-  -var="lock_table_name=aws-env-provisioner-tf-locks"
-```
-
-Save the output values: you'll need them in the next step.
-
-### 2. Deploy the platform
-
-Creates the API Gateway, both Lambdas, the CodeBuild project, EventBridge schedule, SNS topic, and runtime IAM roles.
-
-```bash
-cd terraform/infrastructure
-
-terraform init \
-  -backend-config="bucket=<STATE_BUCKET>" \
-  -backend-config="key=infra/main/terraform.tfstate" \
-  -backend-config="region=ap-south-1" \
-  -backend-config="dynamodb_table=<LOCK_TABLE>" \
-  -backend-config="encrypt=true"
-
-terraform apply \
-  -var="aws_region=ap-south-1" \
-  -var="state_bucket_name=<STATE_BUCKET>" \
-  -var="lock_table_name=<LOCK_TABLE>" \
-  -var="repository_url=https://github.com/<OWNER>/aws-env-provisioner.git" \
-  -var="source_version=main" \
-  -var="sns_email=you@example.com"
-```
-
-Confirm the SNS email subscription (AWS will not deliver warning emails until confirmed).
-
-Retrieve the API endpoint:
-
-```bash
-terraform output provision_url
-```
-
-> **Note:** Steps 1 and 2 deploy the *platform*, and are a one-time, manual operation. They are never repeated per sandbox environment.
+- [Prerequisites](setup.md#prerequisites)
+- [Bootstrapping Terraform State](setup.md#1-bootstrap-terraform-state)
+- [Deploying the Platform](setup.md#2-deploy-the-platform)
+- [Verifying the Setup](setup.md#verification)
+- [Troubleshooting](setup.md#troubleshooting)
 
 ---
 
@@ -170,54 +116,6 @@ Each role is scoped to only what its function needs; no role has broad EC2, IAM,
 
 ---
 
-## Verification
-
-**Provision an environment:**
-
-```bash
-curl -X POST "<PROVISION_URL>" \
-  -H "content-type: application/json" \
-  -d '{"environment_name":"<OWNER>-test","ttl_hours":2,"owner":"<OWNER>","allowed_ssh_cidr":"203.0.113.10/32"}'
-```
-
-**Watch the CodeBuild run:**
-
-```bash
-aws codebuild list-builds-for-project \
-  --project-name aws-env-provisioner-terraform
-```
-
-**Check live environments:**
-
-```bash
-aws ec2 describe-instances \
-  --filters "Name=tag:provisioner/project,Values=aws-env-provisioner" \
-  --query "Reservations[].Instances[].{Id:InstanceId,State:State.Name,Env:Tags[?Key=='provisioner/environment']|[0].Value}" \
-  --output table
-```
-
-**Check SSM metadata:**
-
-```bash
-aws ssm get-parameter \
-  --name "/<PROJECT_NAMESPACE>/aws-env-provisioner/environments/<OWNER>-test" \
-  --query "Parameter.Value" \
-  --output text
-```
-
-**Trigger cleanup manually:**
-
-```bash
-aws lambda invoke \
-  --function-name aws-env-provisioner-cleanup \
-  --payload '{}' \
-  response.json
-
-cat response.json
-```
-
----
-
 ## Cost Profile
 
 This project is designed to stay inside AWS free tier for light usage:
@@ -232,57 +130,6 @@ This project is designed to stay inside AWS free tier for light usage:
 - SSM standard parameters
 
 Actual free-tier eligibility depends on account age, region, and existing usage (check AWS Billing after testing.
-
----
-
-## Troubleshooting
-
-Issues encountered while building and running this project, and how to resolve them.
-
-**Terraform apply fails during resource reconciliation**
-Terraform needs several EC2 *read* permissions in addition to create/delete permissions, or applies can fail partway through:
-```json
-"ec2:DescribeVpcAttribute",
-"ec2:DescribeInstanceTypes",
-"ec2:DescribeInstanceAttribute"
-```
-
-**`AccessDeniedException: No access to reserved parameter name`**
-AWS reserves the `/aws/*` SSM namespace. Use a project-scoped namespace instead, e.g. `/<PROJECT_NAMESPACE>/aws-env-provisioner/environments/*` (example: `/<OWNER>/aws-env-provisioner/environments/<OWNER>-test`).
-
-**SSM parameter tagging fails after otherwise successful provisioning**
-The CodeBuild role needs:
-```json
-"ssm:AddTagsToResource",
-"ssm:ListTagsForResource",
-"ssm:RemoveTagsFromResource"
-```
-
-**API Gateway, CodeBuild, or EventBridge lookups fail unexpectedly**
-Usually a region mismatch. The backend region, provider region, and `-var="aws_region=..."` must all match exactly.
-
-**`ResourceAlreadyExistsException` on redeploy**
-Happens when Terraform state becomes inconsistent or partially destroyed (affects Lambda functions, CodeBuild projects, CloudWatch log groups, IAM roles). Fix by importing the orphaned resource into state, deleting it manually, or rebuilding the backend cleanly.
-
-**`BucketNotEmpty` when deleting the backend bucket**
-S3 backend buckets with versioning enabled can't be deleted while object versions remain. Empty the bucket's objects, remove all object versions, then delete the bucket.
-
-**Recommended deploy/destroy order**
-
-| | Order |
-|---|---|
-| **Deploy** | `terraform/backend` → `terraform/infrastructure` |
-| **Destroy** | `terraform/infrastructure` → `terraform/backend` |
-
-Destroying the backend first can strand Terraform state and orphan infrastructure resources.
-
-**Debugging IAM permission gaps**
-It can help to temporarily broaden IAM during initial development to isolate exactly which runtime actions Terraform needs:
-```json
-"ec2:*",
-"ssm:*"
-```
-Tighten back down to the minimum required action set once confirmed. This should never ship as the final permission set.
 
 ---
 
