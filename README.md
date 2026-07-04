@@ -14,7 +14,7 @@ This project removes both problems. A developer calls a single API endpoint with
 
 ## Architecture
 
-![AWS Infrastructure Provisioning & Cleanup Architecture](docs/images/architecture.png)
+![AWS Infrastructure Provisioning & Cleanup Architecture](images/architecture.png)
 
 **Two independent Terraform layers:**
 
